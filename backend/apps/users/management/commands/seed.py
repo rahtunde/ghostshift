@@ -6,12 +6,16 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from apps.availability.models import Availability
-from apps.burnout.models import BurnoutScore, RiskLevel
+from apps.burnout.choices import RiskLevel
+from apps.burnout.models import BurnoutScore
 from apps.departments.models import Department
-from apps.shifts.models import Shift, ShiftStatus
-from apps.swaps.models import SwapRequest, SwapStatus
+from apps.shifts.constants import ShiftStatus
+from apps.shifts.models import Shift
+from apps.swaps.constants import SwapStatus
+from apps.swaps.models import SwapRequest
 
 User = get_user_model()
+
 
 class Command(BaseCommand):
     help = 'Seeds the database with initial test data'
@@ -28,13 +32,13 @@ class Command(BaseCommand):
                 defaults={"description": f"{name} department"}
             )
             departments.append(dept)
-        
+
         self.stdout.write(self.style.SUCCESS(f'Created {len(departments)} departments.'))
 
         # 2. Users
         users = []
-        
-        # Admin
+
+        # Admin (system super admin — marked is_superuser=True)
         admin, created = User.objects.get_or_create(email="admin@ghostshift.test")
         if created:
             admin.set_password("Admin123!")
@@ -44,7 +48,7 @@ class Command(BaseCommand):
             admin.is_staff = True
             admin.is_superuser = True
             admin.save()
-            users.append(admin)
+        users.append(admin)
 
         # HR
         hr, created = User.objects.get_or_create(email="hr@ghostshift.test")
@@ -54,7 +58,7 @@ class Command(BaseCommand):
             hr.last_name = "Resources"
             hr.role = "HR"
             hr.save()
-            users.append(hr)
+        users.append(hr)
 
         # Managers
         managers = []
@@ -63,12 +67,12 @@ class Command(BaseCommand):
             if created:
                 manager.set_password("Manager123!")
                 manager.first_name = "Manager"
-                manager.last_name = str(i+1)
+                manager.last_name = str(i + 1)
                 manager.role = "MANAGER"
                 manager.department = random.choice(departments)
                 manager.save()
-                managers.append(manager)
-                users.append(manager)
+            managers.append(manager)
+            users.append(manager)
 
         # Employees
         employees = []
@@ -77,47 +81,51 @@ class Command(BaseCommand):
             if created:
                 emp.set_password("Employee123!")
                 emp.first_name = "Employee"
-                emp.last_name = str(i+1)
+                emp.last_name = str(i + 1)
                 emp.role = "EMPLOYEE"
                 emp.department = random.choice(departments)
                 emp.save()
-                employees.append(emp)
-                users.append(emp)
+            employees.append(emp)
+            users.append(emp)
 
         self.stdout.write(self.style.SUCCESS(f'Created {len(users)} users.'))
 
         # 3. Shifts
         now = timezone.now().replace(hour=8, minute=0, second=0, microsecond=0)
         week_start = now - timedelta(days=now.weekday())
-        
+
         shifts = []
-        # Create shifts for current week
-        for i in range(5): # Monday to Friday
+        # Create shifts for current week (Monday to Friday)
+        for i in range(5):
             current_day = week_start + timedelta(days=i)
-            
+
             # Create 2 shifts per day
             for j in range(2):
-                shift_start = current_day + timedelta(hours=8 + (j*8)) # 8am and 4pm
+                shift_start = current_day + timedelta(hours=8 + (j * 8))  # 8am and 4pm
                 shift_end = shift_start + timedelta(hours=8)
-                
+
                 emp = random.choice(employees)
-                
+
                 # Check for overlap naively
                 overlap = False
                 for s in shifts:
                     if s.assigned_employee == emp and s.start_time < shift_end and s.end_time > shift_start:
                         overlap = True
                         break
-                
+
                 if not overlap:
-                    shift = Shift.objects.create(
-                        title=f"{'Morning' if j==0 else 'Evening'} Shift",
+                    # Use only stable identity fields in the lookup; put computed/variable
+                    # fields in defaults= so repeated runs don't create duplicates.
+                    shift, _ = Shift.objects.get_or_create(
+                        title=f"{'Morning' if j == 0 else 'Evening'} Shift",
                         department=emp.department,
                         start_time=shift_start,
                         end_time=shift_end,
                         assigned_employee=emp,
-                        status=ShiftStatus.SCHEDULED if shift_start > timezone.now() else ShiftStatus.COMPLETED,
-                        created_by=random.choice(managers)
+                        defaults={
+                            "status": ShiftStatus.SCHEDULED if shift_start > timezone.now() else ShiftStatus.COMPLETED,
+                            "created_by": random.choice(managers),
+                        }
                     )
                     shifts.append(shift)
 
@@ -132,7 +140,7 @@ class Command(BaseCommand):
                 date=unavailable_date,
                 defaults={
                     "available": False,
-                    "note": "Doctor appointment"
+                    "note": "Doctor appointment",
                 }
             )
 
@@ -143,33 +151,38 @@ class Command(BaseCommand):
                 shift_to_swap = future_shifts[0]
                 requester = shift_to_swap.assigned_employee
                 # Find replacement in same dept
-                replacements = [e for e in employees if e != requester and e.department == shift_to_swap.department]
+                replacements = [
+                    e for e in employees
+                    if e != requester and e.department == shift_to_swap.department
+                ]
                 if replacements:
                     replacement = random.choice(replacements)
                     SwapRequest.objects.get_or_create(
                         requester=requester,
                         shift=shift_to_swap,
                         replacement_employee=replacement,
-                        defaults={
-                            "status": SwapStatus.PENDING
-                        }
+                        defaults={"status": SwapStatus.PENDING}
                     )
                     self.stdout.write(self.style.SUCCESS('Created 1 pending swap request.'))
 
         # 6. Burnout Scores
+        # Only identity field in the lookup is `employee`; all score data goes in defaults=
+        # so re-runs update rather than fail on duplicate lookup keys.
         for emp in employees:
-            BurnoutScore.objects.create(
+            BurnoutScore.objects.get_or_create(
                 employee=emp,
-                score=random.randint(10, 85),
-                risk_level=random.choice([RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH]),
-                weekly_hours=random.randint(30, 55),
-                consecutive_shifts=random.randint(2, 6),
-                night_shifts=random.randint(0, 3)
+                defaults={
+                    "score": random.randint(10, 85),
+                    "risk_level": random.choice([RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH]),
+                    "weekly_hours": random.uniform(30, 55),
+                    "consecutive_shifts": random.randint(2, 6),
+                    "night_shifts": random.randint(0, 3),
+                }
             )
 
         self.stdout.write(self.style.SUCCESS('Database successfully seeded!'))
         self.stdout.write(self.style.WARNING('\nTest Accounts:'))
-        self.stdout.write('Admin: admin@ghostshift.test / Admin123!')
-        self.stdout.write('HR: hr@ghostshift.test / HRpass123!')
-        self.stdout.write('Manager: manager1@ghostshift.test / Manager123!')
-        self.stdout.write('Employee: employee1@ghostshift.test / Employee123!')
+        self.stdout.write('  Admin:    admin@ghostshift.test    / Admin123!')
+        self.stdout.write('  HR:       hr@ghostshift.test       / HRpass123!')
+        self.stdout.write('  Manager:  manager1@ghostshift.test / Manager123!')
+        self.stdout.write('  Employee: employee1@ghostshift.test / Employee123!')
