@@ -9,8 +9,12 @@ echo "▶ Waiting for database to be ready..."
 python << 'EOF'
 import sys
 import time
-import psycopg2
 import os
+
+try:
+    import psycopg as pg
+except ImportError:
+    import psycopg2 as pg
 
 host = os.environ.get("DB_HOST", "db")
 port = os.environ.get("DB_PORT", "5432")
@@ -21,11 +25,11 @@ password = os.environ.get("DB_PASSWORD", "ghostshift_dev")
 retries = 20
 for i in range(retries):
     try:
-        conn = psycopg2.connect(host=host, port=port, dbname=dbname, user=user, password=password)
+        conn = pg.connect(host=host, port=port, dbname=dbname, user=user, password=password)
         conn.close()
         print(f"  ✓ Database is ready (attempt {i+1})")
         sys.exit(0)
-    except psycopg2.OperationalError:
+    except pg.OperationalError:
         print(f"  · Attempt {i+1}/{retries} — database not ready, retrying in 2s...")
         time.sleep(2)
 

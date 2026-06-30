@@ -23,9 +23,10 @@ class UserSerializer(serializers.ModelSerializer):
             "department",
             "department_name",
             "is_active",
+            "is_superuser",
             "date_joined",
         ]
-        read_only_fields = ["id", "date_joined"]
+        read_only_fields = ["id", "date_joined", "is_superuser"]
 
     def get_department_name(self, obj):
         return obj.department.name if obj.department else None

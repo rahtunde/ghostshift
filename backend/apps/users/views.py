@@ -90,11 +90,24 @@ class UserViewSet(viewsets.ModelViewSet):
         # Generate a temporary password if created by admin without one
         serializer.save()
 
+    def perform_update(self, serializer):
+        # Prevent non-superusers from updating a superuser account
+        instance = self.get_object()
+        if instance.is_superuser and not self.request.user.is_superuser:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("The system super admin account cannot be updated.")
+        serializer.save()
+
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.pk == request.user.pk:
             return Response(
                 {"detail": "You cannot delete your own account."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if instance.is_superuser:
+            return Response(
+                {"detail": "The system super admin account cannot be deleted."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         return super().destroy(request, *args, **kwargs)

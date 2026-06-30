@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Edit2, Trash2, Search, Shield, Users } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Shield, Users, ShieldCheck, Lock } from 'lucide-react';
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '../../hooks/useUsers';
 import { useDepartments } from '../../hooks/useDepartments';
 import { useAuthStore } from '../../store/authStore';
@@ -152,13 +152,26 @@ const UserManagementPage = () => {
       header: 'User',
       render: (row) => (
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {row.first_name?.[0] || row.email?.[0] || '?'}
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${
+            row.is_superuser
+              ? 'bg-gradient-to-br from-amber-400 to-amber-600'
+              : 'bg-gradient-to-br from-brand-500 to-brand-700'
+          }`}>
+            {row.is_superuser
+              ? <ShieldCheck size={14} />
+              : (row.first_name?.[0] || row.email?.[0] || '?')}
           </div>
           <div>
-            <p className="font-medium text-slate-900 dark:text-white text-sm">
-              {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : '—'}
-            </p>
+            <div className="flex items-center gap-1.5">
+              <p className="font-medium text-slate-900 dark:text-white text-sm">
+                {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : '—'}
+              </p>
+              {row.is_superuser && (
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                  <ShieldCheck size={9} /> Super Admin
+                </span>
+              )}
+            </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">{row.email}</p>
           </div>
         </div>
@@ -176,12 +189,31 @@ const UserManagementPage = () => {
       header: 'Actions',
       render: (row) => (
         <div className="flex gap-2 items-center">
-          <Button variant="ghost" size="sm" onClick={() => openEdit(row)} title="Edit user">
-            <Edit2 size={14} />
-          </Button>
+          {row.is_superuser && !currentUser?.is_superuser ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled
+              className="text-slate-300 dark:text-slate-600 cursor-not-allowed opacity-50"
+              title="System super admin is protected and cannot be edited"
+            >
+              <Edit2 size={14} />
+            </Button>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={() => openEdit(row)} title="Edit user">
+              <Edit2 size={14} />
+            </Button>
+          )}
           {row.id === currentUser?.id ? (
             <span title="You cannot delete your own account" className="px-2 py-1 text-xs text-slate-400 dark:text-slate-500 cursor-not-allowed select-none font-medium">
               (You)
+            </span>
+          ) : row.is_superuser ? (
+            <span
+              title="System super admin is protected and cannot be deleted"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-amber-600 dark:text-amber-400 cursor-not-allowed select-none font-medium"
+            >
+              <Lock size={11} /> Protected
             </span>
           ) : (
             <Button
